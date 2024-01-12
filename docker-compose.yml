@@ -1,0 +1,93 @@
+version: '3.1'
+services:
+    mysql:
+        image: 'mysql:8.0'
+        working_dir: /app
+        volumes:
+            - '.:/app'
+        environment:
+            - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root}
+            - MYSQL_DATABASE=${MYSQL_DATABASE:-app}
+            - MYSQL_USER=${MYSQL_USER:-app}
+            - MYSQL_PASSWORD=${MYSQL_PASSWORD:-app}
+        ports:
+            - '${MYSQL_PORT:-3306}:3306'
+
+    webserver:
+        image: 'nginx:alpine'
+        working_dir: /app
+        volumes:
+            - '.:/app'
+            - './docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf'
+        ports:
+            - '${HTTP_PORT:-80}:80'
+
+    php-fpm:
+        build: docker/php-fpm
+        working_dir: /app
+        volumes:
+            - './api:/app'
+            - './receiver:/receiver'
+            - './docker/php-fpm/php-ini-overrides.ini:/etc/php/8.1/fpm/conf.d/99-overrides.ini'
+
+    zookeeper:
+        image: quay.io/debezium/zookeeper:${DEBEZIUM_VERSION}
+        ports:
+            - 2181:2181
+            - 2888:2888
+            - 3888:3888
+
+    kafka:
+        image: quay.io/debezium/kafka:${DEBEZIUM_VERSION}
+        ports:
+        - 9092:9092
+        links:
+            - zookeeper
+        environment:
+            - ZOOKEEPER_CONNECT=zookeeper:2181
+
+    connect:
+        image: debezium/strimzi-connect
+        build:
+            context: docker/debezium-strimzi
+            args:
+                DEBEZIUM_CONNECTOR_VERSION: "${DEBEZIUM_CONNECTOR_VERSION:-2.4.0.Alpha2}"
+                STRIMZI_VERSION: "${STRIMZI_VERSION:-latest-kafka-3.5.1}"
+        ports:
+            - 8083:8083
+        links:
+            - kafka
+            - mysql
+        environment:
+            - KAFKA_LOG4J_OPTS=-Dlog4j.configuration=file:/opt/kafka/config/connect-log4j.properties
+            - KAFKA_CONNECT_BOOTSTRAP_SERVERS=kafka:9092
+            - |
+                KAFKA_CONNECT_CONFIGURATION=
+                key.converter=org.apache.kafka.connect.json.JsonConverter
+                value.converter=org.apache.kafka.connect.json.JsonConverter
+                key.converter.schemas.enable=false
+                value.converter.schemas.enable=false
+                group.id=connect
+                offset.storage.topic=connect-offsets
+                offset.storage.replication.factor=1
+                config.storage.topic=connect-configs
+                config.storage.replication.factor=1
+                status.storage.topic=connect-status
+                status.storage.replication.factor=1
+                producer.interceptor.classes=io.debezium.tracing.DebeziumTracingProducerInterceptor
+            - OTEL_SERVICE_NAME=kafka-connect
+            - OTEL_TRACES_EXPORTER=otlp
+            - OTEL_METRICS_EXPORTER=none
+            - OTEL_TRACES_SAMPLER=always_on
+            - STRIMZI_TRACING=opentelemetry
+        command: /opt/kafka/kafka_connect_run.sh
+
+    kafka-ui:
+        container_name: kafka-ui
+        image: provectuslabs/kafka-ui:latest
+        ports:
+        - 8080:8080
+        environment:
+            KAFKA_CLUSTERS_0_NAME: local
+            KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+            DYNAMIC_CONFIG_ENABLED: 'true'
