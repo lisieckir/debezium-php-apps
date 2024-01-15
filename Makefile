@@ -1,5 +1,17 @@
 setup:
-	docker compose up -d --build
+	docker compose up -d --build \
+	&& docker compose exec php-fpm composer install \
+	&& docker compose exec -w /receiver php-fpm composer install \
+	&& make update-schema \
+	&& make register-connector \
+	&& sleep 20 \
+	&& docker compose restart \
+	&& sleep 10 \
+	&& make create-employee \
+	&& docker compose exec php-fpm /etc/init.d/supervisor start \
+	&& sleep 10 \
+	&& make create-employee \
+	&& make edit-employee
 bash:
 	docker compose exec php-fpm bash
 register-connector:

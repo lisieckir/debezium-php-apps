@@ -13,5 +13,8 @@ RUN apt-get update \
         php8.2-mysql \ 
         php8.2-yaml \
         php8.2-rdkafka \
+        supervisor \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/*
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/* \
+    && update-rc.d supervisor enable
+
